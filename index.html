@@ -4,7 +4,11 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <title>Wörterbuch — PONS</title>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <title>Voctionary German – English</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
   <style>
     :root{--ink:#1a1209;--parchment:#f5eedc;--cream:#faf6ec;--red:#c0392b;--gold:#b8860b;--mid:#6b5c3e;--rule:rgba(26,18,9,0.18);--green:#2e7d32;}
@@ -101,7 +105,7 @@
 <!-- API KEY MODAL -->
 <div id="modal">
   <div class="modal-box">
-    <h2>PONS <em>Langenscheidt</em></h2>
+    <h2>Voctionary <em>German–English</em></h2>
     <p>Enter your free PONS API key to use the Langenscheidt dictionary database.<br><br>
     Get one free at <a href="https://en.pons.com/open_dict/public_api" target="_blank">pons.com → API registration</a> (1,000 lookups/month free, no credit card).</p>
     <input class="modal-input" type="password" id="apiKeyInput" placeholder="Your PONS API key…" autocomplete="off"/>
@@ -114,7 +118,7 @@
 <!-- STICKY TOP BAR -->
 <div class="top-bar">
   <div class="top-row">
-    <h1>Deutsches <em>Wörterbuch</em></h1>
+    <h1>Voctionary <em>German–English</em></h1>
     <button class="key-badge no-key" id="keyBadge" onclick="document.getElementById('modal').style.display='flex'">No Key</button>
   </div>
   <div class="search-wrap">
@@ -148,9 +152,14 @@
 <script>
   let apiKey = '', recognition = null, isListening = false;
 
+  // ── SAFE STORAGE (works even in Samsung Internet private mode) ──
+  function storageGet(k) { try { return localStorage.getItem(k); } catch(e) { return null; } }
+  function storageSet(k, v) { try { localStorage.setItem(k, v); } catch(e) {} }
+  function storageDel(k) { try { localStorage.removeItem(k); } catch(e) {} }
+
   // ── LOAD SAVED KEY ON STARTUP ──
   (function init() {
-    const saved = localStorage.getItem('pons_api_key');
+    const saved = storageGet('pons_api_key');
     if (saved) {
       apiKey = saved;
       document.getElementById('modal').style.display = 'none';
@@ -162,14 +171,14 @@
     const val = document.getElementById('apiKeyInput').value.trim();
     if (!val) { alert('Please enter your PONS API key.'); return; }
     apiKey = val;
-    localStorage.setItem('pons_api_key', val);
+    storageSet('pons_api_key', val);
     document.getElementById('modal').style.display = 'none';
     setBadge(true);
   }
 
   function skipKey() {
     apiKey = '';
-    localStorage.removeItem('pons_api_key');
+    storageDel('pons_api_key');
     document.getElementById('modal').style.display = 'none';
     setBadge(false);
   }
@@ -389,3 +398,4 @@
 </script>
 </body>
 </html>
+
