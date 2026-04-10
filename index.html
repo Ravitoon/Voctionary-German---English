@@ -97,6 +97,7 @@
     #fabMic.listening{background:var(--red);animation:pulse 1s ease-in-out infinite;}
     #fabMic svg{width:26px;height:26px;}
 
+    #debugPanel{display:none;background:#1a1209;color:#f5eedc;font-family:monospace;font-size:0.65rem;padding:12px;margin:16px 0;white-space:pre-wrap;word-break:break-all;border:2px solid var(--red);}
     footer{border-top:1px solid var(--rule);padding:12px 14px;font-family:'DM Mono',monospace;font-size:0.58rem;color:var(--mid);letter-spacing:0.1em;text-align:center;text-transform:uppercase;background:var(--cream);}
   </style>
 </head>
@@ -137,7 +138,8 @@
   <div id="status"></div>
 </div>
 
-<main><div id="entryBox"></div></main>
+<main><div id="debugPanel"></div>
+<div id="entryBox"></div></main>
 
 <footer>PONS Langenscheidt API · Wiktionary CC BY-SA 4.0 fallback · Web Speech API · MMXXVI</footer>
 
@@ -263,65 +265,105 @@
     if (res.status === 503) throw new Error('Daily PONS limit reached');
     if (res.status === 403) throw new Error('Invalid PONS API key');
     if (!res.ok) throw new Error('PONS error ' + res.status);
-    return await res.json();
+    const json = await res.json();
+    console.log('PONS RAW:', JSON.stringify(json, null, 2));
+    return json;
   }
+
+  function extractGender(headword_full) {
+    if (!headword_full) return '';
+    const m = headword_full.match(/title="(der|die|das)\b/i);
+    if (m) return m[1].toLowerCase();
+    const g = headword_full.match(/class="genus"[^>]*>\s*([mfn])\s*</i);
+    if (g) return {m:'der',f:'die',n:'das'}[g[1]] || '';
+    return '';
+  }
+
+  // Pick the English side of a source/target pair by detecting German via umlauts
+  function pickEnglish(source, target) {
+    const s = stripHtml(source || '');
+    const t = stripHtml(target || '');
+    const sIsGerman = /[äöüÄÖÜß]/.test(s);
+    const tIsGerman = /[äöüÄÖÜß]/.test(t);
+    if (sIsGerman && !tIsGerman) return t;  // source is German → target is English
+    if (tIsGerman && !sIsGerman) return s;  // target is German → source is English
+    return t || s;                           // fallback: target
+  }
+
+  function looksGerman(s) { return /[äöüÄÖÜß]/.test(s); }
 
   function renderPONS(data, word, box) {
     let h = '<hr class="entry-divider">';
+    let headwordWritten = false;
 
-    // data is an array of direction objects [{lang, hits}]
-    data.forEach(direction => {
-      const lang = direction.lang; // e.g. "de" or "en"
-      const hits = direction.hits || [];
+    const deDir = data.find(d => d.lang === 'de');
+    const enDir = data.find(d => d.lang === 'en');
+    const primaryDir = deDir || enDir;
+    if (!primaryDir) {
+      box.innerHTML = '<hr class="entry-divider"><div class="error-block">No results found.</div>';
+      return;
+    }
 
-      hits.forEach(hit => {
-        const roms = hit.roms || [];
-        if (hit.type === 'translation' && !roms.length) {
-          // Simple translation hit
-          h += `<div class="entry-headword">${stripHtml(hit.source || word)}</div>`;
-          h += `<hr class="rule"/>`;
-          h += `<div class="trans-pair"><span class="trans-source">${stripHtml(hit.source||'')}</span><span class="trans-arrow">→</span><span class="trans-target">${stripHtml(hit.target||'')}</span></div>`;
-          return;
+    // DEBUG: show raw first translation pair
+    try {
+      const firstHit = (primaryDir.hits||[])[0];
+      const firstRom = (firstHit&&firstHit.roms||[])[0];
+      const firstArab = (firstRom&&firstRom.arabs||[])[0];
+      const firstTrans = (firstArab&&firstArab.translations||[])[0];
+      const debugInfo = {
+        directions: data.map(d=>d.lang),
+        primaryLang: primaryDir.lang,
+        firstSource: firstTrans && firstTrans.source,
+        firstTarget: firstTrans && firstTrans.target,
+        firstHeader: firstArab && firstArab.header,
+        headword_full: firstRom && firstRom.headword_full
+      };
+      document.getElementById('debugPanel').textContent = JSON.stringify(debugInfo, null, 2);
+      document.getElementById('debugPanel').style.display = 'block';
+    } catch(e) {}
+
+    (primaryDir.hits || []).forEach(hit => {
+      // Simple translation hit (no roms)
+      if (hit.type === 'translation' && !(hit.roms || []).length) {
+        if (!headwordWritten) {
+          h += `<div class="entry-headword">${stripHtml(hit.source || word)}</div><hr class="rule"/>`;
+          headwordWritten = true;
+        }
+        const eng = pickEnglish(hit.source, hit.target);
+        if (eng) h += `<div class="trans-pair"><span class="trans-source">${eng}</span></div>`;
+        return;
+      }
+
+      (hit.roms || []).forEach((rom, ri) => {
+        const wordclass = stripHtml(rom.wordclass || '');
+
+        if (!headwordWritten) {
+          const cleanHead = stripHtml(rom.headword || word);
+          const gender = extractGender(rom.headword_full || '');
+          h += `<div class="entry-headword">${cleanHead}</div>`;
+          h += '<div class="entry-meta">';
+          if (wordclass) h += `<span class="pos-tag">${wordclass}</span>`;
+          if (gender === 'der') h += '<span class="tag">der</span>';
+          else if (gender === 'die') h += '<span class="tag">die</span>';
+          else if (gender === 'das') h += '<span class="tag">das</span>';
+          h += '</div><hr class="rule"/>';
+          headwordWritten = true;
+        } else {
+          h += '<hr class="rule"/>';
+          if (wordclass) h += `<div class="rom-wordclass">${wordclass}</div>`;
         }
 
-        roms.forEach((rom, ri) => {
-          const headword = stripHtml(rom.headword_full || rom.headword || word);
-          const wordclass = stripHtml(rom.wordclass || '');
-
-          if (ri === 0) {
-            // Extract gender from headword_full (contains HTML like <span class="genus">m</span>)
-            const genderMatch = (rom.headword_full || '').match(/genus[^>]*>([mfn])</i) ||
-                                (rom.headword_full || '').match(/<acronym[^>]*title="(der|die|das)/i);
-            const gender = genderMatch ? genderMatch[1] : '';
-            const cleanHead = stripHtml(rom.headword || word);
-
-            h += `<div class="entry-headword">${cleanHead}</div>`;
-            h += `<div class="entry-meta">`;
-            if (wordclass) h += `<span class="pos-tag">${wordclass}</span>`;
-            if (gender === 'm' || gender === 'der') h += `<span class="tag">der</span>`;
-            if (gender === 'f' || gender === 'die') h += `<span class="tag">die</span>`;
-            if (gender === 'n' || gender === 'das') h += `<span class="tag">das</span>`;
-            h += `</div><hr class="rule"/>`;
-          } else {
-            h += `<hr class="rule"/>`;
-            if (wordclass) h += `<div class="rom-wordclass">${wordclass}</div>`;
+        (rom.arabs || []).forEach(arab => {
+          // Arab header is a sense label — only show if it looks like English
+          const header = stripHtml(arab.header || '');
+          if (header && !looksGerman(header)) {
+            h += `<div class="arab-header">${header}</div>`;
           }
-
-          const arabs = rom.arabs || [];
-          arabs.forEach(arab => {
-            const header = stripHtml(arab.header || '');
-            if (header) h += `<div class="arab-header">${header}</div>`;
-            (arab.translations || []).forEach(t => {
-              const src = stripHtml(t.source || '');
-              const tgt = stripHtml(t.target || '');
-              if (src || tgt) {
-                h += `<div class="trans-pair">
-                  <span class="trans-source">${src}</span>
-                  <span class="trans-arrow">→</span>
-                  <span class="trans-target">${tgt}</span>
-                </div>`;
-              }
-            });
+          (arab.translations || []).forEach(t => {
+            const eng = pickEnglish(t.source, t.target);
+            if (eng) {
+              h += `<div class="trans-pair"><span class="trans-source">${eng}</span></div>`;
+            }
           });
         });
       });
@@ -398,4 +440,3 @@
 </script>
 </body>
 </html>
-
